@@ -2,10 +2,11 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>开心兔-几杯懒散几杯愁</title>
-    <link>http://localhost:1313/</link>
+    <link>https://bi6.top/</link>
     <description>Recent content on 开心兔-几杯懒散几杯愁</description>
     <generator>Hugo</generator>
     <language>zh-cn</language>
-    <atom:link href="http://localhost:1313/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate></lastBuildDate>
+    <atom:link href="https://bi6.top/index.xml" rel="self" type="application/rss+xml" />
   </channel>
 </rss>
