@@ -556,16 +556,19 @@
 
       <section class="toolbar" aria-label="输出控制">
         <div class="segmented" role="group" aria-label="输出格式">
-          <button type="button" data-format="sub2api" aria-pressed="true">sub2api</button>
-          <button type="button" data-format="cpa" aria-pressed="false">CPA</button>
+          <button type="button" data-format="jsonl" aria-pressed="true">标准化 JSONL</button>
+          <button type="button" data-format="freejson" aria-pressed="false">Codex JSON / AT 批量输入</button>
+          <button type="button" data-format="sub2api" aria-pressed="false">sub2api bundle</button>
+          <button type="button" data-format="cpa" aria-pressed="false">CPA JSON</button>
           <button type="button" data-format="cockpit" aria-pressed="false">Cockpit</button>
           <button type="button" data-format="9router" aria-pressed="false">9router</button>
-          <button type="button" data-format="codex" aria-pressed="false">Codex</button>
+          <button type="button" data-format="codex" aria-pressed="false">Codex auth.json</button>
           <button type="button" data-format="axonhub" aria-pressed="false">AxonHub</button>
           <button type="button" data-format="codexmanager" aria-pressed="false">Codex-Manager</button>
         </div>
         <div class="actions">
           <button class="button button-secondary" id="copy-output" type="button" disabled>复制输出</button>
+          <button class="button button-secondary" id="use-output" type="button" disabled>放回输入</button>
           <button class="button button-primary" id="download-output" type="button" disabled>下载 JSON</button>
         </div>
       </section>
@@ -574,8 +577,8 @@
         <section class="panel" aria-labelledby="input-title">
           <div class="panel-head">
             <div>
-              <h2 id="input-title">Session JSON</h2>
-              <p>粘贴 ChatGPT Web session，或选择一个或多个 JSON 文件。</p>
+              <h2 id="input-title">Session / CPA / sub2api JSON</h2>
+              <p>可粘贴 ChatGPT Web session、CPA 数组、{"accounts":[...]} 的 sub2api JSON，或标准化 JSONL；标准化 JSONL 是中转格式，若现有 sub2api 导入时报缺少 accessToken，请改选“Codex JSON / AT 批量输入”。</p>
             </div>
           </div>
           <div class="panel-body">
@@ -588,7 +591,7 @@
               </p>
               <p class="session-warning">这段 JSON 包含 accessToken 和 sessionToken，等同敏感登录凭证，不要发给别人。</p>
             </div>
-            <input class="hidden" id="file-input" type="file" accept=".json,application/json" multiple />
+            <input class="hidden" id="file-input" type="file" accept=".json,.jsonl,.txt,application/json,text/plain" multiple />
             <div class="input-actions">
               <button class="button button-secondary" id="pick-files" type="button">选择文件</button>
               <button class="button button-secondary" id="load-example" type="button">填入示例结构</button>
@@ -597,7 +600,7 @@
             <textarea
               id="session-input"
               spellcheck="false"
-              placeholder='{"user":{"email":"mark@example.com"},"expires":"2026-08-06T14:29:36.155Z","account":{"id":"...","planType":"plus"},"accessToken":"...","sessionToken":"..."}'
+              placeholder='可粘贴 Session JSON、CPA 数组、{"accounts":[...]} 的 sub2api JSON，或标准化 JSONL。'
             ></textarea>
             <div class="status-line" id="input-status">等待输入。</div>
           </div>
@@ -607,12 +610,15 @@
           <div class="panel-head">
             <div>
               <h2 id="output-title">转换结果</h2>
-              <p id="output-subtitle">当前输出为 sub2api 导入 JSON。</p>
+              <p id="output-subtitle">当前输出为标准化 JSONL，适合作为二次转换的中间格式。</p>
             </div>
           </div>
           <div class="panel-body">
             <p class="notice" id="cpa-notice">
               ChatGPT Web session 一般没有 `refresh_token`；缺少真实 `id_token` 时 CPA、Cockpit、Codex 和 AxonHub 会构造 Codex 可解析的占位 JWT claims。Codex 和 Codex-Manager 会保留空 `refresh_token`；AxonHub 缺少真实 `refresh_token` 时会写入占位值。
+            </p>
+            <p class="notice" id="free-notice">
+              Codex JSON / AT 批量输入通常要求每条记录顶层包含 `accessToken` 或 `access_token`；如果已有 sub2api JSON 导入时报缺少 accessToken，请把它粘到左侧后改选“Codex JSON / AT 批量输入”输出。
             </p>
             <div class="summary" aria-label="转换统计">
               <div class="stat">
@@ -620,7 +626,7 @@
                 <div class="stat-label">账号数</div>
               </div>
               <div class="stat">
-                <div class="stat-value" id="stat-format">sub2api</div>
+                <div class="stat-value" id="stat-format">标准化 JSONL</div>
                 <div class="stat-label">输出格式</div>
               </div>
               <div class="stat">
@@ -662,17 +668,31 @@
     <script>
       (() => {
         const OUTPUT_LABELS = {
-          sub2api: "sub2api",
-          cpa: "CPA",
+          jsonl: "标准化 JSONL",
+          freejson: "Codex JSON / AT 批量输入",
+          sub2api: "sub2api bundle",
+          cpa: "CPA JSON",
           cockpit: "Cockpit",
           "9router": "9router",
-          codex: "Codex",
+          codex: "Codex auth.json",
           axonhub: "AxonHub",
           codexmanager: "Codex-Manager",
         };
 
+        const OUTPUT_HINTS = {
+          jsonl: "当前输出为标准化 JSONL，适合作为二次转换的中间格式。",
+          freejson: "当前输出用于“Codex JSON / AT 批量输入”入口，accessToken/access_token 位于每条记录顶层。",
+          sub2api: "当前输出用于 sub2api 的 bundle 导入，不适合粘到 Codex JSON / AT 批量输入入口。",
+          cpa: "当前输出用于 CPA 导入，不适合粘到 Codex JSON / AT 批量输入入口。",
+          cockpit: "当前输出用于 Cockpit 导入，不适合粘到 Codex JSON / AT 批量输入入口。",
+          "9router": "当前输出用于 9router 导入，不适合粘到 Codex JSON / AT 批量输入入口。",
+          codex: "当前输出用于本地 Codex auth.json，不是 AT 批量输入格式。",
+          axonhub: "当前输出用于 AxonHub 导入，不适合粘到 Codex JSON / AT 批量输入入口。",
+          codexmanager: "当前输出用于 Codex-Manager 导入，不适合粘到 Codex JSON / AT 批量输入入口。",
+        };
+
         const state = {
-          format: "sub2api",
+          format: "jsonl",
           sessions: [],
           converted: [],
           skipped: [],
@@ -687,6 +707,7 @@
           downloadOutput: document.querySelector("#download-output"),
           fileInput: document.querySelector("#file-input"),
           formatButtons: Array.from(document.querySelectorAll("[data-format]")),
+          freeNotice: document.querySelector("#free-notice"),
           input: document.querySelector("#session-input"),
           inputStatus: document.querySelector("#input-status"),
           issues: document.querySelector("#issues"),
@@ -698,6 +719,7 @@
           statCount: document.querySelector("#stat-count"),
           statErrors: document.querySelector("#stat-errors"),
           statFormat: document.querySelector("#stat-format"),
+          useOutput: document.querySelector("#use-output"),
         };
 
         const exampleSession = {
@@ -874,7 +896,7 @@
             payload.email = email;
           }
 
-          return `${encodeBase64UrlJson({ alg: "none", typ: "JWT", cpa_synthetic: true })}.${encodeBase64UrlJson(payload)}.synthetic`;
+          return `${encodeBase64UrlJson({ alg: "none", typ: "JWT", synthetic: true })}.${encodeBase64UrlJson(payload)}.synthetic`;
         }
 
         function getExpiresIn(expiresAt, now = new Date()) {
@@ -973,6 +995,42 @@
           const found = [];
           const visited = new WeakSet();
 
+          function getImportAccessToken(item) {
+            return firstNonEmpty(
+              item.accessToken,
+              item.access_token,
+              item.tokens?.accessToken,
+              item.tokens?.access_token,
+              item.token?.accessToken,
+              item.token?.access_token,
+              item.credentials?.accessToken,
+              item.credentials?.access_token,
+            );
+          }
+
+          function hasImportIdentity(item) {
+            return isPlainObject(item.user) || Boolean(firstNonEmpty(
+              item.email,
+              item.name,
+              item.label,
+              item.account_id,
+              item.chatgpt_account_id,
+              item.meta?.label,
+              item.meta?.chatgptAccountId,
+              item.meta?.chatgpt_account_id,
+              item.tokens?.accountId,
+              item.tokens?.account_id,
+              item.tokens?.chatgptAccountId,
+              item.tokens?.chatgpt_account_id,
+              item.credentials?.email,
+              item.credentials?.chatgpt_account_id,
+              item.credentials?.chatgpt_user_id,
+              item.providerSpecificData?.chatgptAccountId,
+              item.providerSpecificData?.chatgpt_account_id,
+              item.id,
+            ));
+          }
+
           function visit(item, path) {
             if (!isPlainObject(item) && !Array.isArray(item)) {
               return;
@@ -984,30 +1042,7 @@
               }
               visited.add(item);
 
-              const token = firstNonEmpty(
-                item.accessToken,
-                item.access_token,
-                item.tokens?.accessToken,
-                item.tokens?.access_token,
-                item.token?.accessToken,
-                item.token?.access_token,
-                item.credentials?.accessToken,
-                item.credentials?.access_token,
-              );
-              const hasIdentity = isPlainObject(item.user) || firstNonEmpty(
-                item.email,
-                item.name,
-                item.label,
-                item.meta?.label,
-                item.tokens?.accountId,
-                item.tokens?.account_id,
-                item.tokens?.chatgptAccountId,
-                item.tokens?.chatgpt_account_id,
-                item.providerSpecificData?.chatgptAccountId,
-                item.providerSpecificData?.chatgpt_account_id,
-                item.id,
-              );
-              if (token && hasIdentity) {
+              if (getImportAccessToken(item) && hasImportIdentity(item)) {
                 found.push({ value: item, sourceName, path });
                 return;
               }
@@ -1036,11 +1071,32 @@
           let parsed;
           try {
             parsed = JSON.parse(text);
+            return collectSessionLikeObjects(parsed);
           } catch (error) {
-            throw new Error(`JSON 解析失败：${error.message}`);
-          }
+            const found = [];
+            const jsonlErrors = [];
+            const lines = text.split(/\r?\n/);
 
-          return collectSessionLikeObjects(parsed);
+            lines.forEach((rawLine, index) => {
+              const line = rawLine.trim();
+              if (!line || line.startsWith("#")) {
+                return;
+              }
+
+              try {
+                const item = JSON.parse(line);
+                found.push(...collectSessionLikeObjects(item, `pasted-jsonl:${index + 1}`));
+              } catch (lineError) {
+                jsonlErrors.push(`第 ${index + 1} 行：${lineError instanceof Error ? lineError.message : String(lineError)}`);
+              }
+            });
+
+            if (jsonlErrors.length) {
+              throw new Error(`JSON/JSONL 解析失败：${jsonlErrors.slice(0, 3).join("；")}`);
+            }
+
+            return found;
+          }
         }
 
         function convertSession(record, options = {}) {
@@ -1069,6 +1125,7 @@
             record.token?.sessionToken,
             record.token?.session_token,
             record.credentials?.session_token,
+            record.extra?.session_token,
           );
           const refreshToken = firstNonEmpty(
             record.refreshToken,
@@ -1101,12 +1158,15 @@
             normalizeTimestamp(record.expiresAt),
             normalizeTimestamp(record.expired),
             normalizeTimestamp(record.expires_at),
+            normalizeTimestamp(record.credentials?.expires_at),
+            normalizeTimestamp(record.credentials?.expired),
           );
           const email = firstNonEmpty(
             record.user?.email,
             record.email,
             record.meta?.label,
             record.label,
+            record.extra?.email,
             record.credentials?.email,
             record.providerSpecificData?.email,
             profile.email,
@@ -1127,6 +1187,7 @@
             record.providerSpecificData?.chatgptAccountId,
             record.providerSpecificData?.chatgpt_account_id,
             record.credentials?.chatgpt_account_id,
+            record.credentials?.account_id,
             auth.chatgpt_account_id,
             idAuth.chatgpt_account_id,
             record.provider === "codex" ? record.id : undefined,
@@ -1141,6 +1202,7 @@
             record.providerSpecificData?.chatgptAccountId,
             record.providerSpecificData?.chatgpt_account_id,
             record.credentials?.chatgpt_account_id,
+            record.credentials?.account_id,
             auth.chatgpt_account_id,
             idAuth.chatgpt_account_id,
           );
@@ -1160,7 +1222,9 @@
           const userId = firstNonEmpty(
             record.user?.id,
             record.user_id,
+            record.chatgpt_user_id,
             record.chatgptUserId,
+            record.credentials?.chatgpt_user_id,
             record.providerSpecificData?.chatgptUserId,
             record.providerSpecificData?.chatgpt_user_id,
             auth.chatgpt_user_id,
@@ -1176,6 +1240,7 @@
             record.providerSpecificData?.chatgptPlanType,
             record.providerSpecificData?.chatgpt_plan_type,
             record.credentials?.plan_type,
+            record.chatgpt_plan_type,
             auth.chatgpt_plan_type,
             idAuth.chatgpt_plan_type,
           );
@@ -1200,12 +1265,12 @@
             id_token: idToken,
             id_token_synthetic: Boolean(syntheticIdToken) || undefined,
             access_token: accessToken,
-            refresh_token: refreshToken || "",
+            refresh_token: refreshToken,
             session_token: sessionToken,
             last_refresh: exportedAt,
             expired: expiresAt,
             disabled: Boolean(record.disabled) || undefined,
-          }).filter(([, value]) => value !== undefined && value !== null));
+          }).filter(([, value]) => value !== undefined && value !== null && value !== ""));
 
           const cockpit = {
             type: "codex",
@@ -1319,6 +1384,24 @@
             name,
             expiresAt,
             accessTokenExpiresAt,
+            normalizedRecord: stripUnavailable({
+              version: 1,
+              platform: "chatgpt",
+              email,
+              access_token: accessToken,
+              refresh_token: refreshToken,
+              id_token: idToken,
+              session_token: sessionToken,
+              chatgpt_account_id: accountId,
+              chatgpt_user_id: userId,
+              workspace_id: workspaceId,
+              expired: expiresAt,
+              source: sourceType,
+              disabled: Boolean(record.disabled) || undefined,
+              auth_provider: firstNonEmpty(record.authProvider, record.auth_provider),
+              account_claims_email: firstNonEmpty(record.account_claims_email, record.extra?.email, idPayload?.email, profile.email, email),
+              plan_type: planType,
+            }),
             cpa,
             cockpit,
             nineRouter,
@@ -1327,6 +1410,36 @@
             codexManager,
             sub2apiAccount,
           };
+        }
+
+        function buildJsonlDocument(converted) {
+          const lines = converted.map((item) => JSON.stringify(item.normalizedRecord));
+          return `${lines.join("\n")}${lines.length ? "\n" : ""}`;
+        }
+
+        function buildFreeImportDocument(converted) {
+          return converted.map((item) => {
+            const record = item.normalizedRecord || {};
+            return stripUnavailable({
+              email: record.email,
+              name: item.name || record.email,
+              accessToken: record.access_token,
+              access_token: record.access_token,
+              refreshToken: record.refresh_token,
+              refresh_token: record.refresh_token,
+              idToken: record.id_token,
+              id_token: record.id_token,
+              sessionToken: record.session_token,
+              session_token: record.session_token,
+              account_id: record.chatgpt_account_id,
+              chatgpt_account_id: record.chatgpt_account_id,
+              chatgpt_user_id: record.chatgpt_user_id,
+              plan_type: record.plan_type,
+              expires: record.expired,
+              expires_at: record.expired,
+              expired: record.expired,
+            });
+          });
         }
 
         function buildSub2apiDocument(converted, now = new Date()) {
@@ -1344,9 +1457,15 @@
           }
 
           if (state.format === "cpa") {
-            return state.converted.length === 1
-              ? state.converted[0].cpa
-              : state.converted.map((item) => item.cpa);
+            return state.converted.map((item) => item.cpa);
+          }
+
+          if (state.format === "jsonl") {
+            return buildJsonlDocument(state.converted);
+          }
+
+          if (state.format === "freejson") {
+            return buildFreeImportDocument(state.converted);
           }
 
           if (state.format === "cockpit") {
@@ -1424,23 +1543,38 @@
           element.classList.toggle("is-error", tone === "error");
         }
 
+        function flashButton(button, text) {
+          const originalText = button.textContent;
+          button.textContent = text;
+          window.clearTimeout(button._flashTimer);
+          button._flashTimer = window.setTimeout(() => {
+            button.textContent = originalText;
+          }, 1400);
+        }
+
         function updateOutput() {
           const hasConverted = state.converted.length > 0;
           let outputText = "";
 
           if (hasConverted) {
-            outputText = JSON.stringify(buildOutputDocument(), null, 2);
+            const outputDocument = buildOutputDocument();
+            outputText = typeof outputDocument === "string"
+              ? outputDocument
+              : JSON.stringify(outputDocument, null, 2);
           }
 
           state.outputText = outputText;
           elements.output.value = outputText;
           elements.copyOutput.disabled = !outputText;
+          elements.useOutput.disabled = !outputText;
           elements.downloadOutput.disabled = !outputText;
           elements.statCount.textContent = String(state.converted.length);
           elements.statErrors.textContent = String(state.skipped.length);
           elements.statFormat.textContent = OUTPUT_LABELS[state.format];
-          elements.outputSubtitle.textContent = `当前输出为 ${OUTPUT_LABELS[state.format]} 导入 JSON。`;
+          elements.outputSubtitle.textContent = OUTPUT_HINTS[state.format] || `当前输出为 ${OUTPUT_LABELS[state.format]} 导入 JSON。`;
+          elements.downloadOutput.textContent = state.format === "jsonl" ? "下载 JSONL" : "下载 JSON";
           elements.cpaNotice.style.display = ["cpa", "cockpit", "codex", "axonhub", "codexmanager"].includes(state.format) ? "block" : "none";
+          elements.freeNotice.style.display = state.format === "freejson" ? "block" : "none";
 
           renderAccounts();
           renderIssues();
@@ -1519,8 +1653,10 @@
 
           const first = state.converted[0];
           const base = sanitizeFileToken(first?.email || first?.name || state.format);
-          const fileName = `${base}.${state.format}.${getTimestampToken()}.json`;
-          const blob = new Blob([state.outputText], { type: "application/json;charset=utf-8" });
+          const extension = state.format === "jsonl" ? "jsonl" : "json";
+          const fileName = `${base}.${state.format}.${getTimestampToken()}.${extension}`;
+          const mimeType = state.format === "jsonl" ? "application/x-ndjson;charset=utf-8" : "application/json;charset=utf-8";
+          const blob = new Blob([state.outputText], { type: mimeType });
           const url = URL.createObjectURL(blob);
           const anchor = document.createElement("a");
           anchor.href = url;
@@ -1538,18 +1674,31 @@
 
           try {
             await navigator.clipboard.writeText(state.outputText);
+            flashButton(elements.copyOutput, "已复制");
             setStatus(elements.outputStatus, "已复制到剪贴板。", "ok");
           } catch {
             elements.output.select();
             document.execCommand("copy");
+            flashButton(elements.copyOutput, "已复制");
             setStatus(elements.outputStatus, "已复制到剪贴板。", "ok");
           }
         }
 
+        function useOutputAsInput() {
+          if (!state.outputText) {
+            return;
+          }
+
+          elements.input.value = state.outputText;
+          scheduleConvert();
+          flashButton(elements.useOutput, "已放回");
+          setStatus(elements.inputStatus, `已将 ${OUTPUT_LABELS[state.format]} 输出放回输入框，可切换格式继续转换。`, "ok");
+        }
+
         async function readFiles(files) {
-          const jsonFiles = Array.from(files).filter((file) => file.name.toLowerCase().endsWith(".json"));
+          const jsonFiles = Array.from(files).filter((file) => /\.(json|jsonl|txt)$/i.test(file.name));
           if (!jsonFiles.length) {
-            setStatus(elements.inputStatus, "没有选择 JSON 文件。", "error");
+            setStatus(elements.inputStatus, "没有选择 JSON/JSONL 文件。", "error");
             return;
           }
 
@@ -1559,13 +1708,16 @@
           for (const file of jsonFiles) {
             try {
               const text = await file.text();
-              const parsed = JSON.parse(text);
-              const found = collectSessionLikeObjects(parsed, file.webkitRelativePath || file.name);
+              const found = parseInputDocuments(text)
+                .map((item) => ({
+                  ...item,
+                  sourceName: file.webkitRelativePath || file.name,
+                }));
               if (!found.length) {
                 skipped.push({
                   sourceName: file.webkitRelativePath || file.name,
                   path: "$",
-                  reason: "未找到包含 accessToken 和 user/email 的 session 对象",
+                  reason: "未找到包含 accessToken 的账号对象",
                 });
               }
               documents.push(...found);
@@ -1619,6 +1771,7 @@
 
         elements.input.addEventListener("input", scheduleConvert);
         elements.copyOutput.addEventListener("click", copyOutput);
+        elements.useOutput.addEventListener("click", useOutputAsInput);
         elements.downloadOutput.addEventListener("click", downloadOutput);
         elements.pickFiles.addEventListener("click", () => elements.fileInput.click());
         elements.fileInput.addEventListener("change", (event) => {
